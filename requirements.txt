@@ -1,0 +1,8 @@
+fastapi>=0.110,<1
+uvicorn[standard]>=0.23,<1
+defusedxml>=0.7.1
+aiosqlite>=0.18
+# Optional if you ever flip to OpenAI provider:
+openai>=1.0.0
+
+python-multipart>=0.0.9

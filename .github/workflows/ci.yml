@@ -1,0 +1,67 @@
+name: CI - build & smoke test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t ai-triage:${{ github.sha }} .
+
+      - name: Start container
+        run: |
+          mkdir -p /tmp/triage-data /tmp/triage-uploads
+          docker run -d --name triage -p 8000:8000 \
+            -e API_KEYS="demo-key-1" \
+            -e DB_PATH="/app/data/triage.db" \
+            -e TRIAGE_PROVIDER="mock" \
+            -v /tmp/triage-data:/app/data \
+            -v /tmp/triage-uploads:/app/uploads \
+            ai-triage:${{ github.sha }}
+
+      - name: Wait for API
+        run: |
+          for i in {1..60}; do
+            curl -s -H "x-api-key: demo-key-1" http://127.0.0.1:8000/health && exit 0
+            sleep 2
+          done
+          echo "API not responding"
+          docker logs triage
+          exit 1
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Upload a tiny nmap XML (POST /scan)
+        run: |
+          cat > sample.xml <<'EOF'
+          <?xml version="1.0"?>
+          <nmaprun><host>
+            <status state="up"/>
+            <address addr="127.0.0.1" addrtype="ipv4"/>
+            <hostnames><hostname name="localhost"/></hostnames>
+            <ports>
+              <port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port>
+            </ports>
+          </host></nmaprun>
+          EOF
+          curl -s -H "x-api-key: demo-key-1" -F "file=@sample.xml" http://127.0.0.1:8000/scan | tee upload.json
+          test "$(jq -r '.scan_id' upload.json)" != "null"
+
+      - name: GET /scans/{id} and assert triage exists
+        run: |
+          ID=$(jq -r '.scan_id' upload.json)
+          curl -s -H "x-api-key: demo-key-1" http://127.0.0.1:8000/scans/$ID | tee scan.json
+          test "$(jq -r '.triage.summary' scan.json)" != "null"
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f triage || true

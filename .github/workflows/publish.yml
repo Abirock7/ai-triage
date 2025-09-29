@@ -2,7 +2,6 @@ name: Publish to GHCR
 on:
   push:
     branches: [ "main" ]
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -22,3 +21,5 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/ai-triage:latest
+YAML
+

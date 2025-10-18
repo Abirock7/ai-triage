@@ -5,16 +5,6 @@ import os, io, csv, json, re, asyncio, datetime as dt
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from enum import Enum
-import os, logging  # (keep your other imports)
-
-API_KEYS = set(os.getenv("API_KEYS", "demo-key-1").split(","))
-TRIAGE_PROVIDER = os.getenv("TRIAGE_PROVIDER", "rules").lower()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-
-# If Gemini is requested but no key is present, fall back gracefully.
-if TRIAGE_PROVIDER == "gemini" and not GOOGLE_API_KEY:
-    logging.warning("GOOGLE_API_KEY not set; falling back to 'rules' triage provider.")
-    TRIAGE_PROVIDER = "rules"
 
 # XML parsing (defused for safety)
 from defusedxml import ElementTree as ET
@@ -162,7 +152,6 @@ def _safe_float(x: Optional[str]) -> Optional[float]:
         return float(str(x).strip())
     except Exception:
         return None
-
 
 # -----------------------------
 # Parsers
@@ -406,13 +395,8 @@ def _flatten_findings(scan_obj: dict):
 # API endpoints
 # -----------------------------
 @app.get("/health")
-async def health(user: str = Depends(require_user)):
-    return {"status": "ok", "user": user}
-
-@app.get("/readyz")
-async def readyz():
-    # super lightweight readiness; no auth, so CI can hit it
-    return {"status": "ok"}
+def health(api_user: str = Depends(require_api_key)):
+    return {"status": "ok", "user": api_user}
 
 @app.get("/scans")
 async def scans(api_user: str = Depends(require_api_key), limit: int = 200, offset: int = 0, ip: Optional[str] = None):

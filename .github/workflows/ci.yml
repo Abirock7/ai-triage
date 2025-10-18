@@ -8,32 +8,57 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t ai-triage:ci .
+        run: |
+          docker build -t ai-triage:ci .
 
       - name: Run container (with safe defaults)
         run: |
-          docker run -d --name ai-triage -p 8000:8000 \
+          mkdir -p ${{ runner.temp }}/triage-data ${{ runner.temp }}/triage-uploads
+          docker run -d --name triage -p 8000:8000 \
             -e API_KEYS="demo-key-1" \
             -e DB_PATH="/app/data/triage.db" \
             -e TRIAGE_PROVIDER="rules" \
+            -v ${{ runner.temp }}/triage-data:/app/data \
+            -v ${{ runner.temp }}/triage-uploads:/app/uploads \
             ai-triage:ci
 
       - name: Wait for server to be ready
         run: |
-          for i in {1..40}; do
-            curl -fsS http://localhost:8000/readyz && break
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health -H 'x-api-key: demo-key-1' >/dev/null; then
+              echo "API healthy"; exit 0
+            fi
             sleep 1
           done
+          echo "API not responding"
+          docker logs triage || true
+          exit 1
 
       - name: Smoke tests
         run: |
-          # Swagger should load unauth'd
+          # 1) Swagger should load without auth
           curl -fsS http://localhost:8000/docs >/dev/null
-          # Auth'd health should also succeed
-          curl -fsS -H "x-api-key: demo-key-1" http://localhost:8000/health >/dev/null
+
+          # 2) /health should work with api-key header
+          curl -fsS http://localhost:8000/health -H 'x-api-key: demo-key-1' >/dev/null
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== docker logs triage (tail) ==="
+          docker logs --tail=200 triage || true
+          echo "=== ps / ports ==="
+          docker ps -a || true
+          ss -ltn || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f triage || true
